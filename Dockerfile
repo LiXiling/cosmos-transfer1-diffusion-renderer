@@ -13,42 +13,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Use NVIDIA PyTorch container as base image
-FROM nvcr.io/nvidia/pytorch:24.10-py3
+FROM nvcr.io/nvidia/pytorch:25.03-py3
 
-# Install basic tools
-RUN apt-get update && apt-get install -y git tree ffmpeg wget
-RUN rm /bin/sh && ln -s /bin/bash /bin/sh && ln -s /lib64/libcuda.so.1 /lib64/libcuda.so
+# Install system tools + CUDA devel headers required by transformer-engine and apex
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git tree ffmpeg wget \
+        cuda-nvcc-12-8 \
+        cuda-cudart-dev-12-8 \
+        libcublas-dev-12-8 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the cosmos-predict1.yaml and requirements.txt files to the container
-COPY ./cosmos-predict1.yaml /cosmos-predict1.yaml
-COPY ./requirements.txt /requirements.txt
+# Ensure libcuda.so (unversioned) is available for build-time linking
+RUN ln -sf /lib64/libcuda.so.1 /lib64/libcuda.so 2>/dev/null || true
 
-# Install cosmos-predict1 dependencies. This will take a while.
-RUN echo "Installing dependencies. This will take a while..." && \
-    mkdir -p ~/miniconda3 && \
-    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh && \
-    bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3 && \
-    rm ~/miniconda3/miniconda.sh && \
-    source ~/miniconda3/bin/activate && \
-    conda env create --file /cosmos-predict1.yaml && \
-    conda activate cosmos-predict1 && \
-    pip install --no-cache-dir -r /requirements.txt && \
-    ln -sf $CONDA_PREFIX/lib/python3.10/site-packages/nvidia/*/include/* $CONDA_PREFIX/include/ && \
-    ln -sf $CONDA_PREFIX/lib/python3.10/site-packages/nvidia/*/include/* $CONDA_PREFIX/include/python3.10 && \
-    ln -sf $CONDA_PREFIX/lib/python3.10/site-packages/triton/backends/nvidia/include/* $CONDA_PREFIX/include/ && \
-    pip install transformer-engine[pytorch]==1.12.0 && \
-    git clone https://github.com/NVIDIA/apex && cd apex && \
-    CUDA_HOME=$CONDA_PREFIX pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" . && \
-    echo "Environment setup complete"
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+# CUDA build environment (used for transformer-engine and apex compilation)
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=$CUDA_HOME/bin:$PATH
+ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+# Allow uv to install into the PEP-668 externally-managed system Python
+ENV UV_BREAK_SYSTEM_PACKAGES=1
+
+WORKDIR /workspace
+
+# --- Dependency installation (cached as separate layers) ---
+
+# NOTE: torch + torchvision are already installed in the NGC base image at the
+# correct CUDA version; no need to reinstall them.
+
+# 2. All other project dependencies (via pyproject.toml)
+# Stub package dir is required so setuptools can resolve the package during dep install;
+# the real source is overlaid by COPY . /workspace later.
+COPY pyproject.toml .
+RUN mkdir -p cosmos_predict1 && \
+    uv pip install --system --no-cache .
+
+# 3. transformer-engine (requires torch + CUDA headers at build time)
+RUN uv pip install --system --no-cache --no-build-isolation "transformer-engine[pytorch]==1.12.0"
+
+# 4. apex (compiled CUDA extensions — uses pip directly; uv doesn't support --build-option)
+# Set arch list explicitly so apex cross-compiles for Blackwell (10.0 = RTX 5090) and older GPUs
+ENV TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0;10.0"
+RUN git clone --depth 1 https://github.com/NVIDIA/apex /tmp/apex \
+    && pip install --no-cache-dir --no-build-isolation \
+        --config-settings "--build-option=--cpp_ext" \
+        --config-settings "--build-option=--cuda_ext" \
+        /tmp/apex \
+    && rm -rf /tmp/apex
 
 # Copy project code
-WORKDIR /workspace
 COPY . /workspace
 
 ENV PYTHONPATH=/workspace
-ENV PATH="/root/miniconda3/bin:${PATH}"
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

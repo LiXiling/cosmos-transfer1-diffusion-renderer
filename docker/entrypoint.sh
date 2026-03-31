@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-source /root/miniconda3/bin/activate cosmos-predict1
-
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/workspace/checkpoints}"
 
 if [ ! -f "$CHECKPOINT_DIR/Diffusion_Renderer_Inverse_Cosmos_7B/model.pt" ] || \
