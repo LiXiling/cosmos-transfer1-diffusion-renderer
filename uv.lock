@@ -1259,7 +1259,7 @@ name = "markdown-it-py"
 version = "4.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "mdurl" },
+    { name = "mdurl", marker = "sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5b/f5/4ec618ed16cc4f8fb3b701563655a69816155e79e24a17b651541804721d/markdown_it_py-4.0.0.tar.gz", hash = "sha256:cb0a2b4aa34f932c007117b194e945bd74e0ec24133ceb5bac59009cda1cb9f3", size = 73070, upload-time = "2025-08-11T12:57:52.854Z" }
 wheels = [
@@ -1711,48 +1711,46 @@ dependencies = [
     { name = "setuptools" },
     { name = "termcolor" },
     { name = "torch" },
-    { name = "torchvision" },
     { name = "tqdm" },
     { name = "transformers" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "attrs", specifier = "==25.1.0" },
-    { name = "better-profanity", specifier = "==0.7.0" },
-    { name = "boto3", specifier = "==1.35.99" },
-    { name = "decord", specifier = "==0.6.0" },
-    { name = "diffusers", specifier = "==0.32.2" },
-    { name = "einops", specifier = "==0.8.1" },
-    { name = "huggingface-hub", specifier = "==0.29.2" },
-    { name = "hydra-core", specifier = "==1.3.2" },
-    { name = "imageio", extras = ["ffmpeg", "pyav"], specifier = "==2.37.0" },
-    { name = "iopath", specifier = "==0.1.10" },
-    { name = "ipdb", specifier = "==0.13.13" },
-    { name = "loguru", specifier = "==0.7.2" },
-    { name = "mediapy", specifier = "==1.2.2" },
-    { name = "megatron-core", specifier = "==0.10.0" },
-    { name = "nltk", specifier = "==3.9.1" },
-    { name = "numpy", specifier = "==1.26.4" },
-    { name = "nvidia-ml-py", specifier = "==12.535.133" },
-    { name = "omegaconf", specifier = "==2.3.0" },
-    { name = "opencv-python", specifier = "==4.10.0.84" },
-    { name = "pandas", specifier = "==2.2.3" },
-    { name = "peft", specifier = "==0.14.0" },
-    { name = "pillow", specifier = "==11.1.0" },
-    { name = "protobuf", specifier = "==4.25.3" },
-    { name = "pynvml", specifier = "==12.0.0" },
-    { name = "pyyaml", specifier = "==6.0.2" },
-    { name = "retinaface-py", specifier = "==0.0.2" },
-    { name = "safetensors", specifier = "==0.5.3" },
-    { name = "scikit-image", specifier = "==0.25.2" },
-    { name = "sentencepiece", specifier = "==0.2.0" },
-    { name = "setuptools", specifier = "==76.0.0" },
-    { name = "termcolor", specifier = "==2.5.0" },
-    { name = "torch", specifier = "==2.6.0" },
-    { name = "torchvision", specifier = "==0.21.0" },
-    { name = "tqdm", specifier = "==4.66.5" },
-    { name = "transformers", specifier = "==4.49.0" },
+    { name = "attrs", specifier = ">=25.1.0" },
+    { name = "better-profanity", specifier = ">=0.7.0" },
+    { name = "boto3", specifier = ">=1.35.99" },
+    { name = "decord", specifier = ">=0.6.0" },
+    { name = "diffusers", specifier = ">=0.32.2" },
+    { name = "einops", specifier = ">=0.8.1" },
+    { name = "huggingface-hub", specifier = ">=0.29.2" },
+    { name = "hydra-core", specifier = ">=1.3.2" },
+    { name = "imageio", extras = ["pyav", "ffmpeg"], specifier = ">=2.37.0" },
+    { name = "iopath", specifier = ">=0.1.10" },
+    { name = "ipdb", specifier = ">=0.13.13" },
+    { name = "loguru", specifier = ">=0.7.2" },
+    { name = "mediapy", specifier = ">=1.2.2" },
+    { name = "megatron-core", specifier = ">=0.10.0" },
+    { name = "nltk", specifier = ">=3.9.1" },
+    { name = "numpy", specifier = ">=1.26.4" },
+    { name = "nvidia-ml-py", specifier = ">=12.535.133" },
+    { name = "omegaconf", specifier = ">=2.3.0" },
+    { name = "opencv-python", specifier = ">=4.10.0.84" },
+    { name = "pandas", specifier = ">=2.2.3" },
+    { name = "peft", specifier = ">=0.14.0" },
+    { name = "pillow", specifier = ">=11.1.0" },
+    { name = "protobuf", specifier = ">=4.25.3" },
+    { name = "pynvml", specifier = ">=12.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "retinaface-py", specifier = ">=0.0.2" },
+    { name = "safetensors", specifier = ">=0.5.3" },
+    { name = "scikit-image", specifier = ">=0.25.2" },
+    { name = "sentencepiece", specifier = ">=0.2.0" },
+    { name = "setuptools", specifier = ">=76.0.0" },
+    { name = "termcolor", specifier = ">=2.5.0" },
+    { name = "torch", specifier = ">=2.6.0" },
+    { name = "tqdm", specifier = ">=4.66.5" },
+    { name = "transformers", specifier = ">=4.49.0" },
 ]
 
 [[package]]
@@ -1863,19 +1861,19 @@ name = "nvidia-modelopt"
 version = "0.42.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ninja" },
-    { name = "numpy" },
-    { name = "nvidia-ml-py" },
-    { name = "packaging" },
-    { name = "pulp" },
-    { name = "pydantic" },
-    { name = "regex" },
-    { name = "rich" },
-    { name = "safetensors" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "torch" },
-    { name = "tqdm" },
+    { name = "ninja", marker = "sys_platform != 'darwin'" },
+    { name = "numpy", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-ml-py", marker = "sys_platform != 'darwin'" },
+    { name = "packaging", marker = "sys_platform != 'darwin'" },
+    { name = "pulp", marker = "sys_platform != 'darwin'" },
+    { name = "pydantic", marker = "sys_platform != 'darwin'" },
+    { name = "regex", marker = "sys_platform != 'darwin'" },
+    { name = "rich", marker = "sys_platform != 'darwin'" },
+    { name = "safetensors", marker = "sys_platform != 'darwin'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform != 'darwin'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform != 'darwin'" },
+    { name = "torch", marker = "sys_platform != 'darwin'" },
+    { name = "tqdm", marker = "sys_platform != 'darwin'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/61/a4/ad7f8d4ce21e1df1670aaaa05db45bece34a74c9fb44e4e77f668a24adce/nvidia_modelopt-0.42.0-py3-none-any.whl", hash = "sha256:3e8149b4d206b4ae51165f4f6a6d28fc9c2172406c948d5abcd8637b08db5c28", size = 1005332, upload-time = "2026-03-09T20:43:57.936Z" },
@@ -2673,8 +2671,8 @@ name = "rich"
 version = "14.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "markdown-it-py" },
-    { name = "pygments" },
+    { name = "markdown-it-py", marker = "sys_platform != 'darwin'" },
+    { name = "pygments", marker = "sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b3/c6/f3b320c27991c46f43ee9d856302c70dc2d0fb2dba4842ff739d5f46b393/rich-14.3.3.tar.gz", hash = "sha256:b8daa0b9e4eef54dd8cf7c86c03713f53241884e814f4e2f5fb342fe520f639b", size = 230582, upload-time = "2026-02-19T17:23:12.474Z" }
 wheels = [

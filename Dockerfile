@@ -53,15 +53,9 @@ RUN mkdir -p cosmos_predict1 && \
 # 3. transformer-engine (requires torch + CUDA headers at build time)
 RUN uv pip install --system --no-cache --no-build-isolation "transformer-engine[pytorch]==1.12.0"
 
-# 4. apex (compiled CUDA extensions — uses pip directly; uv doesn't support --build-option)
-# Set arch list explicitly so apex cross-compiles for Blackwell (10.0 = RTX 5090) and older GPUs
-ENV TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0;10.0"
-RUN git clone --depth 1 https://github.com/NVIDIA/apex /tmp/apex \
-    && pip install --no-cache-dir --no-build-isolation \
-        --config-settings "--build-option=--cpp_ext" \
-        --config-settings "--build-option=--cuda_ext" \
-        /tmp/apex \
-    && rm -rf /tmp/apex
+# NOTE: apex is pre-installed in the NGC PyTorch base image; no need to build from source.
+# It is only used for FusedAdam (training) and is guarded by try/except, so inference
+# works even without it.
 
 # Copy project code
 COPY . /workspace
