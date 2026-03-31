@@ -2,7 +2,13 @@ services:
   cosmos:
     build: .
     image: cosmos-transfer1-diffusion-renderer
-    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
