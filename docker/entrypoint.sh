@@ -8,7 +8,8 @@ if [ ! -f "$CHECKPOINT_DIR/Diffusion_Renderer_Inverse_Cosmos_7B/model.pt" ] || \
    [ ! -f "$CHECKPOINT_DIR/Cosmos-Tokenize1-CV8x8x8-720p/mean_std.pt" ]; then
     echo "Model weights not found in $CHECKPOINT_DIR — downloading..."
     if [ -n "$HUGGING_FACE_HUB_TOKEN" ]; then
-        huggingface-cli login --token "$HUGGING_FACE_HUB_TOKEN" --add-to-git-credential
+        #huggingface-cli login --token "$HUGGING_FACE_HUB_TOKEN" --add-to-git-credential
+        hf auth login --token "$HUGGING_FACE_HUB_TOKEN" --add-to-git-credential
     fi
     python scripts/download_diffusion_renderer_checkpoints.py --checkpoint_dir "$CHECKPOINT_DIR"
 else

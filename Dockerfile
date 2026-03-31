@@ -53,6 +53,12 @@ RUN mkdir -p cosmos_predict1 && \
 # 3. transformer-engine (requires torch + CUDA headers at build time)
 RUN uv pip install --system --no-cache --no-build-isolation "transformer-engine[pytorch]==1.12.0"
 
+# 4. nvdiffrast (CUDA extension — build from source)
+RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast /tmp/nvdiffrast \
+    && TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0" \
+       pip install --no-cache-dir --no-build-isolation /tmp/nvdiffrast \
+    && rm -rf /tmp/nvdiffrast
+
 # NOTE: apex is pre-installed in the NGC PyTorch base image; no need to build from source.
 # It is only used for FusedAdam (training) and is guarded by try/except, so inference
 # works even without it.
