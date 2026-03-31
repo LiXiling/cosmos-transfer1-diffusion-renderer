@@ -5,3 +5,6 @@ asset/examples/image_examples/.DS_Store
 
 asset/*
 checkpoints/*
+.env
+
+*.egg-info
