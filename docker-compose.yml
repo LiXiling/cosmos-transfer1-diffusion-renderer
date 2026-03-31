@@ -1,0 +1,15 @@
+services:
+  cosmos:
+    build: .
+    image: cosmos-transfer1-diffusion-renderer
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+      - CHECKPOINT_DIR=/checkpoints
+    volumes:
+      - ./checkpoints:/checkpoints
+      - ./asset:/workspace/asset
+    stdin_open: true
+    tty: true

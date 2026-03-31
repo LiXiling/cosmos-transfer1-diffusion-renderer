@@ -1,0 +1,251 @@
+version: '3'
+
+vars:
+  CHECKPOINT_DIR: checkpoints
+
+env:
+  PYTHONPATH: '{{.USER_WORKING_DIR}}'
+  # Prefer conda env CUDA, fall back to system CUDA, then uv venv
+  CUDA_HOME:
+    sh: 'echo "${CONDA_PREFIX:-${VIRTUAL_ENV:-/usr/local/cuda}}"'
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  # ── Environment setup (native only — skip if using Docker) ────────────────
+
+  setup:
+    desc: "[native] Create .venv with Python 3.10 via uv"
+    cmds:
+      - uv venv --python 3.10 .venv
+      - 'echo "Next: source .venv/bin/activate && task install"'
+
+  install:
+    desc: "[native] Install pip deps + transformer-engine (run inside activated venv)"
+    cmds:
+      - uv pip install -r requirements.txt
+      - uv pip install transformer-engine[pytorch]==1.12.0
+
+  test-env:
+    desc: "[native] Verify the environment is set up correctly"
+    cmds:
+      - python scripts/test_environment.py
+
+  download:
+    desc: "[native] Download model weights to {{.CHECKPOINT_DIR}} (~56GB). Docker handles this automatically."
+    cmds:
+      - python scripts/download_diffusion_renderer_checkpoints.py --checkpoint_dir {{.CHECKPOINT_DIR}}
+
+  # ── Image pipeline ─────────────────────────────────────────────────────────
+
+  inverse:images:
+    desc: "Inverse rendering on images → G-buffers. Vars: DATASET_PATH, OUTPUT_DIR"
+    vars:
+      DATASET_PATH: '{{.DATASET_PATH | default "asset/examples/image_examples/"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_delighting/"}}'
+    cmds:
+      - >
+        python cosmos_predict1/diffusion/inference/inference_inverse_renderer.py
+        --checkpoint_dir {{.CHECKPOINT_DIR}}
+        --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
+        --dataset_path {{.DATASET_PATH}}
+        --num_video_frames 1 --group_mode webdataset
+        --video_save_folder {{.OUTPUT_DIR}} --save_video=False
+
+  relight:images:
+    desc: "Relight images from G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT (default: '0 1 2 3')"
+    vars:
+      DATASET_PATH: '{{.DATASET_PATH | default "asset/example_results/image_delighting/gbuffer_frames"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_relighting/"}}'
+      ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+    cmds:
+      - >
+        python cosmos_predict1/diffusion/inference/inference_forward_renderer.py
+        --checkpoint_dir {{.CHECKPOINT_DIR}}
+        --diffusion_transformer_dir Diffusion_Renderer_Forward_Cosmos_7B
+        --dataset_path {{.DATASET_PATH}}
+        --num_video_frames 1
+        --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --video_save_folder {{.OUTPUT_DIR}}
+
+  pipeline:images:
+    desc: "Full image pipeline (inverse → relight). Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT"
+    vars:
+      DATASET_PATH: '{{.DATASET_PATH | default "asset/examples/image_examples/"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_relighting/"}}'
+      ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+    cmds:
+      - task: inverse:images
+        vars:
+          DATASET_PATH: '{{.DATASET_PATH}}'
+          OUTPUT_DIR: asset/example_results/image_delighting/
+      - task: relight:images
+        vars:
+          DATASET_PATH: asset/example_results/image_delighting/gbuffer_frames
+          OUTPUT_DIR: '{{.OUTPUT_DIR}}'
+          ENVLIGHT: '{{.ENVLIGHT}}'
+
+  # ── Video pipeline ─────────────────────────────────────────────────────────
+
+  extract-frames:
+    desc: "Extract video frames to images. Vars: INPUT_DIR, OUTPUT_DIR, FPS (default 24), NUM_FRAMES (default 57)"
+    vars:
+      INPUT_DIR: '{{.INPUT_DIR | default "asset/examples/video_examples/"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/examples/video_frames_examples/"}}'
+      FPS: '{{.FPS | default "24"}}'
+      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+    cmds:
+      - >
+        python scripts/dataproc_extract_frames_from_video.py
+        --input_folder {{.INPUT_DIR}}
+        --output_folder {{.OUTPUT_DIR}}
+        --frame_rate {{.FPS}} --resize 1280x704 --max_frames {{.NUM_FRAMES}}
+
+  inverse:video:
+    desc: "Inverse rendering on video frames → G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, NUM_FRAMES (default 57)"
+    vars:
+      DATASET_PATH: '{{.DATASET_PATH | default "asset/examples/video_frames_examples/"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/video_delighting/"}}'
+      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+    cmds:
+      - >
+        python cosmos_predict1/diffusion/inference/inference_inverse_renderer.py
+        --checkpoint_dir {{.CHECKPOINT_DIR}}
+        --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
+        --dataset_path {{.DATASET_PATH}}
+        --num_video_frames {{.NUM_FRAMES}} --group_mode folder
+        --video_save_folder {{.OUTPUT_DIR}}
+
+  relight:video:
+    desc: "Relight video G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT, NUM_FRAMES (default 57)"
+    vars:
+      DATASET_PATH: '{{.DATASET_PATH | default "asset/example_results/video_delighting/gbuffer_frames"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/video_relighting/"}}'
+      ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+    cmds:
+      - >
+        python cosmos_predict1/diffusion/inference/inference_forward_renderer.py
+        --checkpoint_dir {{.CHECKPOINT_DIR}}
+        --diffusion_transformer_dir Diffusion_Renderer_Forward_Cosmos_7B
+        --dataset_path {{.DATASET_PATH}}
+        --num_video_frames {{.NUM_FRAMES}}
+        --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --video_save_folder {{.OUTPUT_DIR}}
+
+  pipeline:video:
+    desc: "Full video pipeline (extract → inverse → relight). Vars: INPUT_DIR, OUTPUT_DIR, ENVLIGHT, NUM_FRAMES"
+    vars:
+      INPUT_DIR: '{{.INPUT_DIR | default "asset/examples/video_examples/"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/video_relighting/"}}'
+      ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+    cmds:
+      - task: extract-frames
+        vars:
+          INPUT_DIR: '{{.INPUT_DIR}}'
+          OUTPUT_DIR: asset/examples/video_frames_examples/
+          NUM_FRAMES: '{{.NUM_FRAMES}}'
+      - task: inverse:video
+        vars:
+          DATASET_PATH: asset/examples/video_frames_examples/
+          OUTPUT_DIR: asset/example_results/video_delighting/
+          NUM_FRAMES: '{{.NUM_FRAMES}}'
+      - task: relight:video
+        vars:
+          DATASET_PATH: asset/example_results/video_delighting/gbuffer_frames
+          OUTPUT_DIR: '{{.OUTPUT_DIR}}'
+          ENVLIGHT: '{{.ENVLIGHT}}'
+          NUM_FRAMES: '{{.NUM_FRAMES}}'
+
+  # ── Code quality ───────────────────────────────────────────────────────────
+
+  fmt:
+    desc: Format code with black and isort
+    cmds:
+      - black --line-length 120 --target-version py310 --exclude third_party .
+      - isort --profile black --line-length 120 --skip third_party .
+
+  # ── Docker ─────────────────────────────────────────────────────────────────
+
+  docker:build:
+    desc: Build the Docker image
+    cmds:
+      - docker compose build
+
+  docker:shell:
+    desc: Start an interactive shell in the container (downloads weights on first run)
+    cmds:
+      - docker compose run --rm cosmos bash
+
+  docker:inverse:images:
+    desc: "Run inverse:images via Docker. Vars: DATASET_PATH, OUTPUT_DIR"
+    vars:
+      DATASET_PATH: '{{.DATASET_PATH | default "asset/examples/image_examples/"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_delighting/"}}'
+    cmds:
+      - >
+        docker compose run --rm cosmos
+        python cosmos_predict1/diffusion/inference/inference_inverse_renderer.py
+        --checkpoint_dir /checkpoints
+        --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
+        --dataset_path {{.DATASET_PATH}}
+        --num_video_frames 1 --group_mode webdataset
+        --video_save_folder {{.OUTPUT_DIR}} --save_video=False
+
+  docker:relight:images:
+    desc: "Run relight:images via Docker. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT"
+    vars:
+      DATASET_PATH: '{{.DATASET_PATH | default "asset/example_results/image_delighting/gbuffer_frames"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_relighting/"}}'
+      ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+    cmds:
+      - >
+        docker compose run --rm cosmos
+        python cosmos_predict1/diffusion/inference/inference_forward_renderer.py
+        --checkpoint_dir /checkpoints
+        --diffusion_transformer_dir Diffusion_Renderer_Forward_Cosmos_7B
+        --dataset_path {{.DATASET_PATH}}
+        --num_video_frames 1
+        --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --video_save_folder {{.OUTPUT_DIR}}
+
+  docker:relight:video:
+    desc: "Full video relight pipeline via Docker. Required: VIDEO=asset/input/my_video.mp4 [ENVLIGHT='0 1 2 3'] [NUM_FRAMES=57]"
+    vars:
+      VIDEO: '{{.VIDEO}}'
+      ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/output/"}}'
+      _STEM:
+        sh: 'basename "{{.VIDEO}}" | sed "s/\.[^.]*$//"'
+      _INPUT_DIR:
+        sh: 'dirname "{{.VIDEO}}"'
+    cmds:
+      - >
+        docker compose run --rm cosmos
+        python scripts/dataproc_extract_frames_from_video.py
+        --input_folder {{._INPUT_DIR}}
+        --output_folder asset/tmp/frames
+        --frame_rate 24 --resize 1280x704 --max_frames {{.NUM_FRAMES}}
+      - >
+        docker compose run --rm cosmos
+        python cosmos_predict1/diffusion/inference/inference_inverse_renderer.py
+        --checkpoint_dir /checkpoints
+        --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
+        --dataset_path asset/tmp/frames/{{._STEM}}
+        --num_video_frames {{.NUM_FRAMES}} --group_mode folder
+        --video_save_folder asset/tmp/gbuffers
+      - >
+        docker compose run --rm cosmos
+        python cosmos_predict1/diffusion/inference/inference_forward_renderer.py
+        --checkpoint_dir /checkpoints
+        --diffusion_transformer_dir Diffusion_Renderer_Forward_Cosmos_7B
+        --dataset_path asset/tmp/gbuffers/gbuffer_frames
+        --num_video_frames {{.NUM_FRAMES}}
+        --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --video_save_folder {{.OUTPUT_DIR}}

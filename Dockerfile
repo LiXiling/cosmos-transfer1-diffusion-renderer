@@ -43,5 +43,15 @@ RUN echo "Installing dependencies. This will take a while..." && \
     echo "Environment setup complete"
 
 
-# Default command
-CMD ["/bin/bash"]
+# Copy project code
+WORKDIR /workspace
+COPY . /workspace
+
+ENV PYTHONPATH=/workspace
+ENV PATH="/root/miniconda3/bin:${PATH}"
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

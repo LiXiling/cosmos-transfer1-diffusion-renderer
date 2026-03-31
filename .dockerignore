@@ -1,0 +1,9 @@
+.git
+__pycache__
+*.pyc
+*.egg-info
+.venv
+uv.lock
+checkpoints
+asset/example_results
+datasets
