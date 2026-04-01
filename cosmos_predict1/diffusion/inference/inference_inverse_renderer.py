@@ -193,7 +193,9 @@ def demo(args: argparse.Namespace):
                 video_relative_base_name = data_batch['clip_name'][0]
                 chunk_ind_str = data_batch['chunk_index'][0] if 'chunk_index' in data_batch else '0000'
                 for ind in range(output.shape[0]):  # (T, H, W, C)
-                    save_path = os.path.join(args.video_save_folder, "gbuffer_frames", f"{video_relative_base_name}/{chunk_ind_str}.{ind:04d}.{gbuffer_pass}.jpg")
+                    # Use os.path.join for each component so an empty video_relative_base_name
+                    # does not produce an absolute path (f"{name}/file" → "/file" when name="").
+                    save_path = os.path.join(args.video_save_folder, "gbuffer_frames", video_relative_base_name, f"{chunk_ind_str}.{ind:04d}.{gbuffer_pass}.jpg")
                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
                     save_image_or_video(
                         video_save_path=save_path,

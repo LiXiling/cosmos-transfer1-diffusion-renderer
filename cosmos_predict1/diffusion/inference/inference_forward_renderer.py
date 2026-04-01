@@ -214,6 +214,13 @@ def demo(args: argparse.Namespace):
 
     # Generate output
     n_test = len(dataloader)
+    if n_test == 0:
+        log.warning(
+            f"Dataset is empty — no image files found under '{args.dataset_path}'. "
+            "Make sure the inverse renderer ran with --save_image=True (the default) and "
+            "that the path points to the 'gbuffer_frames' subfolder it produced."
+        )
+        return
     iter_dataloader = iter(dataloader)
     for i in range(n_test):
         data_batch = next(iter_dataloader)
