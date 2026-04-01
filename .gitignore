@@ -8,3 +8,9 @@ checkpoints/*
 .env
 
 *.egg-info
+.venv
+.jj
+.vscode
+
+*.pyc
+__pycache__/

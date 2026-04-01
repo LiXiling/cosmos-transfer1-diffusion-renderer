@@ -92,18 +92,22 @@ tasks:
   # ── Video pipeline ─────────────────────────────────────────────────────────
 
   extract-frames:
-    desc: "Extract video frames to images. Vars: INPUT_DIR, OUTPUT_DIR, FPS (default 24), NUM_FRAMES (default 57)"
+    desc: "Extract video frames to images. Vars: INPUT_DIR, OUTPUT_DIR, FPS (optional), RESIZE (optional, e.g. 1280x704), NUM_FRAMES (optional cap)"
     vars:
       INPUT_DIR: '{{.INPUT_DIR | default "asset/examples/video_examples/"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/examples/video_frames_examples/"}}'
-      FPS: '{{.FPS | default "24"}}'
-      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+      _FPS_ARG:
+        sh: '[ -n "{{.FPS}}" ] && echo "--frame_rate {{.FPS}}" || echo ""'
+      _RESIZE_ARG:
+        sh: '[ -n "{{.RESIZE}}" ] && echo "--resize {{.RESIZE}}" || echo ""'
+      _MAX_FRAMES_ARG:
+        sh: '[ -n "{{.NUM_FRAMES}}" ] && echo "--max_frames {{.NUM_FRAMES}}" || echo ""'
     cmds:
       - >
         python scripts/dataproc_extract_frames_from_video.py
         --input_folder {{.INPUT_DIR}}
         --output_folder {{.OUTPUT_DIR}}
-        --frame_rate {{.FPS}} --resize 1280x704 --max_frames {{.NUM_FRAMES}}
+        {{._FPS_ARG}} {{._RESIZE_ARG}} {{._MAX_FRAMES_ARG}}
 
   inverse:video:
     desc: "Inverse rendering on video frames → G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, NUM_FRAMES (default 57)"
@@ -138,12 +142,11 @@ tasks:
         --video_save_folder {{.OUTPUT_DIR}}
 
   pipeline:video:
-    desc: "Full video pipeline (extract → inverse → relight). Vars: INPUT_DIR, OUTPUT_DIR, ENVLIGHT, NUM_FRAMES"
+    desc: "Full video pipeline (extract → inverse → relight). Vars: INPUT_DIR, OUTPUT_DIR, ENVLIGHT, NUM_FRAMES (optional cap)"
     vars:
       INPUT_DIR: '{{.INPUT_DIR | default "asset/examples/video_examples/"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/video_relighting/"}}'
       ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
-      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
     cmds:
       - task: extract-frames
         vars:
@@ -154,13 +157,11 @@ tasks:
         vars:
           DATASET_PATH: asset/examples/video_frames_examples/
           OUTPUT_DIR: asset/example_results/video_delighting/
-          NUM_FRAMES: '{{.NUM_FRAMES}}'
       - task: relight:video
         vars:
           DATASET_PATH: asset/example_results/video_delighting/gbuffer_frames
           OUTPUT_DIR: '{{.OUTPUT_DIR}}'
           ENVLIGHT: '{{.ENVLIGHT}}'
-          NUM_FRAMES: '{{.NUM_FRAMES}}'
 
   # ── Code quality ───────────────────────────────────────────────────────────
 
@@ -215,37 +216,63 @@ tasks:
         --video_save_folder {{.OUTPUT_DIR}}
 
   docker:relight:video:
-    desc: "Full video relight pipeline via Docker. Required: VIDEO=asset/input/my_video.mp4 [ENVLIGHT='0 1 2 3'] [NUM_FRAMES=57]"
+    desc: "Full video relight pipeline via Docker. Required: VIDEO=asset/input/my_video.mp4 [ENVLIGHT='0 1 2 3']"
+    preconditions:
+      - sh: command -v ffprobe
+        msg: "ffprobe is required to probe video metadata. Install ffmpeg."
+      - sh: command -v python3
+        msg: "python3 is required on the host to probe video metadata."
     vars:
       VIDEO: '{{.VIDEO}}'
       ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
-      NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/output/"}}'
       _STEM:
         sh: 'basename "{{.VIDEO}}" | sed "s/\.[^.]*$//"'
       _INPUT_DIR:
         sh: 'dirname "{{.VIDEO}}"'
+      # Probe native video properties (requires ffprobe + python3 on host)
+      _FPS:
+        sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" fps'
+      _WIDTH:
+        sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" width'
+      _HEIGHT:
+        sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" height'
+      _TOTAL_FRAMES:
+        sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" total_frames'
     cmds:
+      # 1. Extract ALL frames at native FPS, resize to model-compatible dimensions
       - >
         docker compose run --rm cosmos
         python scripts/dataproc_extract_frames_from_video.py
         --input_folder {{._INPUT_DIR}}
         --output_folder asset/tmp/frames
-        --frame_rate 24 --resize 1280x704 --max_frames {{.NUM_FRAMES}}
+        --resize {{._WIDTH}}x{{._HEIGHT}}
+      # 2. Inverse rendering — processes all 57-frame chunks (model hard constraint)
       - >
         docker compose run --rm cosmos
         python cosmos_predict1/diffusion/inference/inference_inverse_renderer.py
         --checkpoint_dir /checkpoints
         --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
         --dataset_path asset/tmp/frames/{{._STEM}}
-        --num_video_frames {{.NUM_FRAMES}} --group_mode folder
+        --num_video_frames 57 --group_mode folder --chunk_mode all
+        --height {{._HEIGHT}} --width {{._WIDTH}} --fps {{._FPS}}
         --video_save_folder asset/tmp/gbuffers
+      # 3. Forward rendering — relights each chunk
       - >
         docker compose run --rm cosmos
         python cosmos_predict1/diffusion/inference/inference_forward_renderer.py
         --checkpoint_dir /checkpoints
         --diffusion_transformer_dir Diffusion_Renderer_Forward_Cosmos_7B
         --dataset_path asset/tmp/gbuffers/gbuffer_frames
-        --num_video_frames {{.NUM_FRAMES}}
+        --num_video_frames 57
+        --height {{._HEIGHT}} --width {{._WIDTH}} --fps {{._FPS}}
         --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
         --video_save_folder {{.OUTPUT_DIR}}
+      # 4. Concatenate chunks into final video, trimmed to original length
+      - >
+        docker compose run --rm cosmos
+        python scripts/concat_relit_chunks.py
+        --output_dir {{.OUTPUT_DIR}}
+        --stem {{._STEM}}
+        --fps {{._FPS}}
+        --total_frames {{._TOTAL_FRAMES}}
