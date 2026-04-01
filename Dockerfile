@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM nvcr.io/nvidia/pytorch:25.03-py3
+FROM nvcr.io/nvidia/pytorch:25.06-py3
 
-# Install system tools + CUDA devel headers required by transformer-engine and apex
+# Install system tools + CUDA devel headers (for nvdiffrast compilation)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git tree ffmpeg wget \
-        cuda-nvcc-12-8 \
-        cuda-cudart-dev-12-8 \
-        libcublas-dev-12-8 \
+        cuda-nvcc-12-9 \
+        cuda-cudart-dev-12-9 \
+        libcublas-dev-12-9 \
     && rm -rf /var/lib/apt/lists/*
 
 # Ensure libcuda.so (unversioned) is available for build-time linking
@@ -50,12 +50,12 @@ COPY pyproject.toml .
 RUN mkdir -p cosmos_predict1 && \
     uv pip install --system --no-cache .
 
-# 3. transformer-engine (requires torch + CUDA headers at build time)
-RUN uv pip install --system --no-cache --no-build-isolation "transformer-engine[pytorch]==1.12.0"
+# 3. transformer-engine — already pre-installed in the NGC base image at the
+#    correct version; no need to reinstall.
 
 # 4. nvdiffrast (CUDA extension — build from source)
 RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast /tmp/nvdiffrast \
-    && TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0" \
+    && TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0;12.0" \
        pip install --no-cache-dir --no-build-isolation /tmp/nvdiffrast \
     && rm -rf /tmp/nvdiffrast
 
