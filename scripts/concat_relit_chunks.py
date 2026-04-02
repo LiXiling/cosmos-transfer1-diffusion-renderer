@@ -54,19 +54,22 @@ def concat_chunks(output_dir, stem, fps, total_frames=None):
             for path in files:
                 f.write(f"file '{os.path.basename(path)}'\n")
 
+        concat_basename = os.path.basename(concat_list)
+        final_basename = os.path.basename(final_path)
+
         try:
-            cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list]
+            cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_basename]
             if total_frames is not None:
                 cmd += ["-frames:v", str(total_frames)]
-            cmd += ["-c", "copy", final_path]
+            cmd += ["-c", "copy", final_basename]
 
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=output_dir)
             if result.returncode != 0:
                 print(f"Warning: stream-copy concat failed, re-encoding: {result.stderr}", file=sys.stderr)
-                cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list]
+                cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_basename]
                 if total_frames is not None:
                     cmd += ["-frames:v", str(total_frames)]
-                cmd += ["-r", str(fps), final_path]
+                cmd += ["-r", str(fps), final_basename]
                 subprocess.run(cmd, capture_output=True, text=True, cwd=output_dir, check=True)
         finally:
             if os.path.exists(concat_list):
