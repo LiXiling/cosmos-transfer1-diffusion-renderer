@@ -18,5 +18,6 @@ services:
     volumes:
       - ./checkpoints:/checkpoints
       - ./asset:/workspace/asset
+      - ./scripts:/workspace/scripts
     stdin_open: true
     tty: true

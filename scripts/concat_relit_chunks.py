@@ -74,9 +74,11 @@ def concat_chunks(output_dir, stem, fps, total_frames=None):
         finally:
             if os.path.exists(concat_list):
                 os.unlink(concat_list)
-            for path in files:
-                if os.path.exists(path):
-                    os.unlink(path)
+
+        # Only remove chunk files after successful concatenation
+        for path in files:
+            if os.path.exists(path):
+                os.unlink(path)
 
         print(f"  {final_path} ({len(files)} chunks)")
 

@@ -233,20 +233,16 @@ tasks:
       # Probe native video properties (requires ffprobe + python3 on host)
       _FPS:
         sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" fps'
-      _WIDTH:
-        sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" width'
-      _HEIGHT:
-        sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" height'
       _TOTAL_FRAMES:
         sh: 'python3 scripts/probe_video.py "{{.VIDEO}}" total_frames'
     cmds:
-      # 1. Extract ALL frames at native FPS, resize to model-compatible dimensions
+      # 1. Extract ALL frames at native FPS, resize to model resolution (704p)
       - >
         docker compose run --rm cosmos
         python scripts/dataproc_extract_frames_from_video.py
         --input_folder {{._INPUT_DIR}}
         --output_folder asset/tmp/frames
-        --resize {{._WIDTH}}x{{._HEIGHT}}
+        --resize 1280x704
       # 2. Inverse rendering — processes all 57-frame chunks (model hard constraint)
       - >
         docker compose run --rm cosmos
@@ -255,7 +251,7 @@ tasks:
         --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
         --dataset_path asset/tmp/frames/{{._STEM}}
         --num_video_frames 57 --group_mode folder --chunk_mode all
-        --height {{._HEIGHT}} --width {{._WIDTH}} --fps {{._FPS}}
+        --fps {{._FPS}}
         --video_save_folder asset/tmp/gbuffers
       # 3. Forward rendering — relights each chunk
       - >
@@ -265,7 +261,7 @@ tasks:
         --diffusion_transformer_dir Diffusion_Renderer_Forward_Cosmos_7B
         --dataset_path asset/tmp/gbuffers/gbuffer_frames
         --num_video_frames 57
-        --height {{._HEIGHT}} --width {{._WIDTH}} --fps {{._FPS}}
+        --fps {{._FPS}}
         --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
         --video_save_folder {{.OUTPUT_DIR}}
       # 4. Concatenate chunks into final video, trimmed to original length
