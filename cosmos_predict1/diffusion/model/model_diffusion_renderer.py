@@ -113,6 +113,7 @@ class DiffusionRendererModel(DiffusionT2WModel):
         data_batch: dict,
         guidance: float = 0.0,
         seed: int = 1000,
+        seeds: list[int] | None = None,
         state_shape: tuple | None = None,
         n_sample: int | None = 1,
         is_negative_prompt: bool = False,
@@ -127,6 +128,8 @@ class DiffusionRendererModel(DiffusionT2WModel):
             data_batch (dict): Raw data batch from the training data loader
             guidance (float, optional): Classifier-free guidance weight. Defaults to 1.5.
             seed (int, optional): Random seed for reproducibility. Defaults to 1.
+            seeds (list[int] | None, optional): Per-sample seeds for generating different noise
+                per batch element. Length must equal n_sample. Overrides seed if provided.
             state_shape (tuple | None, optional): Shape of the state tensor. Uses self.state_shape if None. Defaults to None.
             n_sample (int | None, optional): Number of samples to generate. Defaults to 1.
             is_negative_prompt (bool, optional): Whether to use negative prompt for unconditional generation. Defaults to False.
@@ -139,7 +142,16 @@ class DiffusionRendererModel(DiffusionT2WModel):
 
         self.scheduler.set_timesteps(num_steps)
 
-        xt = torch.randn(size=(n_sample,) + tuple(state_shape)) * self.scheduler.init_noise_sigma
+        if seeds is not None:
+            # Generate per-sample noise with different seeds
+            noise_list = []
+            for s in seeds:
+                torch.manual_seed(s)
+                noise_list.append(torch.randn(size=(1,) + tuple(state_shape)))
+            xt = torch.cat(noise_list, dim=0) * self.scheduler.init_noise_sigma
+        else:
+            torch.manual_seed(seed)
+            xt = torch.randn(size=(n_sample,) + tuple(state_shape)) * self.scheduler.init_noise_sigma
         to_cp = self.net.is_context_parallel_enabled
         if to_cp:
             xt = split_inputs_cp(x=xt, seq_dim=2, cp_group=self.net.cp_group)

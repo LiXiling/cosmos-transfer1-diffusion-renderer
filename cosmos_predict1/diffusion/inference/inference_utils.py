@@ -162,6 +162,18 @@ def add_common_arguments(parser):
         action="store_true",
         help="Disable guardrail models",
     )
+    parser.add_argument(
+        "--torch_compile",
+        action="store_true",
+        help="Enable torch.compile for the DiT network. First call takes 30-120s to compile; amortized over multiple videos.",
+    )
+    parser.add_argument(
+        "--compile_mode",
+        type=str,
+        default="reduce-overhead",
+        choices=["default", "reduce-overhead", "max-autotune"],
+        help="torch.compile mode. 'reduce-overhead' uses CUDA graphs (best for fixed-shape denoising loops). Default: reduce-overhead.",
+    )
 
 
 # Function to fully remove an argument

@@ -49,6 +49,8 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
         fps: int = 24,
         num_video_frames: int = 57,
         seed: int = 1000,
+        torch_compile: bool = False,
+        compile_mode: str = "reduce-overhead",
     ):
         """Initialize the diffusion renderer pipeline.
         
@@ -79,6 +81,10 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
             seed=seed,
         )
 
+        if torch_compile:
+            log.info(f"Compiling DiT network with torch.compile(mode='{compile_mode}')")
+            self.model.net = torch.compile(self.model.net, dynamic=False, mode=compile_mode)
+
     def _load_model(self):
         """Load the appropriate renderer model based on is_inverse flag."""
         self.model = load_model_by_config(
@@ -97,8 +103,9 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
         data_batch: Dict[str, torch.Tensor],
         normalize_normal: bool = False,
         seed: int = None,
+        seeds: list[int] | None = None,
     ) -> np.ndarray:
-        """Generate G-buffer maps from input video/image using inverse rendering.
+        """Generate G-buffer maps or relit video from input data.
 
         Args:
             data_batch: Dictionary containing:
@@ -107,15 +114,14 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
                 Other optional keys may be present depending on the model configuration
             normalize_normal: Whether to normalize and blend normal map outputs. Only applies
                 when generating normal maps.
+            seed: Random seed for reproducibility (single seed for all batch elements).
+            seeds: Per-batch-element seeds. If provided, overrides `seed`. Used when
+                different batch elements need different random noise (e.g. non-custom envmaps).
 
         Returns:
-            Generated video frames as uint8 np.ndarray of shape [T, H, W, C].
-            For different G-buffers, C represents:
-                - basecolor: RGB color map
-                - normal: Surface normal vectors
-                - depth: Depth map
-                - roughness: Surface roughness map
-                - metallic: Surface metallic map
+            Generated video frames as uint8 np.ndarray.
+            - If B=1: shape [T, H, W, C] (backward compatible)
+            - If B>1: shape [B, T, H, W, C]
         """
         # Generate video
         log.info("Run generation")
@@ -136,6 +142,7 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
         data_batch = misc.to(data_batch, device="cuda", dtype=torch.bfloat16)  # move to GPU
 
         # prepare state_shape
+        B = data_batch['video'].shape[0]
         C = self.model.tokenizer.channel
         F = (data_batch['video'].shape[2] - 1) // 8 + 1
         H = data_batch['video'].shape[3] // self.model.tokenizer.spatial_compression_factor
@@ -143,13 +150,16 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
         state_shape = [C, F, H, W]
 
         # Generate video frames
+        effective_seed = self.seed if seed is None else seed
         sample = self.model.generate_samples_from_batch(
             data_batch,
             guidance=self.guidance,
             state_shape=state_shape,
+            n_sample=B,
             num_steps=self.num_steps,
             is_negative_prompt=False,
-            seed=self.seed if seed is None else seed,
+            seed=effective_seed,
+            seeds=seeds,
         )
 
         if self.offload_network:
@@ -162,7 +172,7 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
 
         # post-processing (surface normals)
         if normalize_normal:
-            norm = torch.norm(video, dim=1, p=2, keepdim=True)  # (1, C, T, H, W) -> (1, 1, T, H, W)
+            norm = torch.norm(video, dim=1, p=2, keepdim=True)  # (B, C, T, H, W) -> (B, 1, T, H, W)
             video_normalized = video / norm.clamp(min=1e-12)
             norm_threshold_upper = 0.4
             norm_threshold_lower = 0.2
@@ -173,13 +183,16 @@ class DiffusionRendererPipeline(DiffusionText2WorldGenerationPipeline):
             video = video_normalized * blend_ratio + video * (1 - blend_ratio)
 
         video = (1.0 + video).clamp(0, 2) / 2  # [B, 3, T, H, W]
-        video = (video[0].permute(1, 2, 3, 0) * 255).to(torch.uint8).cpu().numpy()
-
+        # Convert all batch elements to uint8 numpy
+        video = (video.permute(0, 2, 3, 4, 1) * 255).to(torch.uint8).cpu().numpy()  # [B, T, H, W, C]
 
         if self.offload_tokenizer:
             self._offload_tokenizer()
 
         log.info("Finish generation")
+        # Backward compatible: return [T, H, W, C] when B=1
+        if B == 1:
+            return video[0]
         return video
 
 

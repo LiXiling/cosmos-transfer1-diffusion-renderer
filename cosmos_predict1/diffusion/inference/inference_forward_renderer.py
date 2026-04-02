@@ -158,6 +158,17 @@ def parse_arguments() -> argparse.Namespace:
             "Default: 0."
         ),
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help=(
+            "Number of environment lights to batch together in a single model call. "
+            "Higher values use more VRAM but process multiple lights in parallel. "
+            "Recommended: 1-2 for 32GB GPUs (e.g. 5090), 2-4 for 80GB GPUs (e.g. H100). "
+            "Default: 1."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -172,10 +183,14 @@ ENV_LIGHT_PATH_LIST = [
 
 def demo(args: argparse.Namespace):
     """Run diffusion renderer inference.
-    
+
     Args:
         args: Command line arguments
     """
+    # Enable CUDA performance optimizations
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
 
     if isinstance(args.envlight_ind, int):
         args.envlight_ind = [args.envlight_ind]
@@ -197,6 +212,8 @@ def demo(args: argparse.Namespace):
         fps=args.fps,
         num_video_frames=args.num_video_frames,
         seed=args.seed,
+        torch_compile=args.torch_compile,
+        compile_mode=args.compile_mode,
     )
 
     # Prepare input data
@@ -207,7 +224,11 @@ def demo(args: argparse.Namespace):
         resolution=(args.height, args.width),
         resize_resolution=args.resize_resolution,
     )
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=2, pin_memory=True, collate_fn=dict_collation_fn)
+    dataloader = torch.utils.data.DataLoader(
+        dataset, batch_size=1, shuffle=False, num_workers=4,
+        pin_memory=True, persistent_workers=True, prefetch_factor=2,
+        collate_fn=dict_collation_fn,
+    )
 
     # Create output directory
     os.makedirs(args.video_save_folder, exist_ok=True)
@@ -231,64 +252,94 @@ def demo(args: argparse.Namespace):
                 if attributes in data_batch:
                     data_batch[attributes] = data_batch[attributes][:, :, args.fixed_frame_ind:args.fixed_frame_ind + 1, ...].expand_as(data_batch[attributes])
 
-        for envlight_ind in args.envlight_ind:
-            # Prepare lighting data
+        # Chunk environment lights into sub-batches for parallel processing
+        envlight_batches = [
+            args.envlight_ind[i : i + args.batch_size]
+            for i in range(0, len(args.envlight_ind), args.batch_size)
+        ]
+
+        for envlight_batch in envlight_batches:
+            B = len(envlight_batch)
+
             if args.use_custom_envmap:
                 device = torch.device("cuda")
-                envlight_path = ENV_LIGHT_PATH_LIST[envlight_ind]
-                envlight_dict = process_environment_map(
-                    envlight_path,
-                    resolution=(args.height, args.width),
-                    num_frames=args.num_video_frames,
-                    fixed_pose=True,
-                    rotate_envlight=args.rotate_light,
-                    env_format=['proj', ],
-                    device=device,
-                )  # Tensors are with shape (T, H, W, 3) in [0, 1]
-                env_ldr = envlight_dict['env_ldr'].unsqueeze(0).permute(0, 4, 1, 2, 3) * 2 - 1
-                env_log = envlight_dict['env_log'].unsqueeze(0).permute(0, 4, 1, 2, 3) * 2 - 1
-                env_nrm = envmap_vec([args.height, args.width], device=device)  # [H, W, 3]
-                env_nrm = env_nrm.unsqueeze(0).unsqueeze(0).permute(0, 4, 1, 2, 3).expand_as(env_ldr)
-                data_batch['env_ldr'] = env_ldr
-                data_batch['env_log'] = env_log
-                data_batch['env_nrm'] = env_nrm
-                log.info(f"Using environment map: {envlight_path}")
-                current_seed = args.seed
+                env_ldr_list, env_log_list, env_nrm_list = [], [], []
+                for envlight_ind in envlight_batch:
+                    envlight_path = ENV_LIGHT_PATH_LIST[envlight_ind]
+                    envlight_dict = process_environment_map(
+                        envlight_path,
+                        resolution=(args.height, args.width),
+                        num_frames=args.num_video_frames,
+                        fixed_pose=True,
+                        rotate_envlight=args.rotate_light,
+                        env_format=["proj"],
+                        device=device,
+                    )  # Tensors are with shape (T, H, W, 3) in [0, 1]
+                    env_ldr_list.append(envlight_dict["env_ldr"].unsqueeze(0).permute(0, 4, 1, 2, 3) * 2 - 1)
+                    env_log_list.append(envlight_dict["env_log"].unsqueeze(0).permute(0, 4, 1, 2, 3) * 2 - 1)
+                    env_nrm = envmap_vec([args.height, args.width], device=device)  # [H, W, 3]
+                    env_nrm_list.append(env_nrm.unsqueeze(0).unsqueeze(0).permute(0, 4, 1, 2, 3).expand_as(env_ldr_list[-1]))
+                    log.info(f"Using environment map: {envlight_path}")
+
+                # Build batched data_batch: replicate G-buffers, stack env maps
+                batched_data = {}
+                for key, val in data_batch.items():
+                    if isinstance(val, torch.Tensor) and key not in ("env_ldr", "env_log", "env_nrm"):
+                        batched_data[key] = val.expand(B, *val.shape[1:])
+                    else:
+                        batched_data[key] = val
+                batched_data["env_ldr"] = torch.cat(env_ldr_list, dim=0)
+                batched_data["env_log"] = torch.cat(env_log_list, dim=0)
+                batched_data["env_nrm"] = torch.cat(env_nrm_list, dim=0)
+
+                outputs = pipeline.generate_video(data_batch=batched_data, seed=args.seed)
+                seeds_used = None
             else:
-                # when not using custom envmap, randomize the illumination with different seed
-                current_seed = args.seed + int(envlight_ind * 1000)
+                # Different seeds per env light — need per-sample noise
+                batch_seeds = [args.seed + int(eidx * 1000) for eidx in envlight_batch]
+                batched_data = {}
+                for key, val in data_batch.items():
+                    if isinstance(val, torch.Tensor):
+                        batched_data[key] = val.expand(B, *val.shape[1:])
+                    else:
+                        batched_data[key] = val
+                outputs = pipeline.generate_video(data_batch=batched_data, seeds=batch_seeds)
 
-            # overwrite specified G-buffer passes
-            output = pipeline.generate_video(
-                data_batch=data_batch,
-                seed=current_seed,
-            )
+            # Normalize outputs shape: always [B, T, H, W, C]
+            if B == 1:
+                outputs = outputs[None]  # [T, H, W, C] -> [1, T, H, W, C]
 
-            # Save output as individual frames
-            if args.save_image:
-                video_relative_base_name = data_batch['clip_name'][0]
-                for ind in range(output.shape[0]):  # (T, H, W, C)
-                    save_path = os.path.join(args.video_save_folder, f"relit_frames_{envlight_ind:04d}", f"{video_relative_base_name}.{ind:04d}.jpg")
-                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                    save_image_or_video(
-                        video_save_path=save_path,
-                        video=output[ind:ind + 1, ...],
-                        H=args.height,
-                        W=args.width,
-                    )
+            # Save each env-light output
+            for batch_idx, envlight_ind in enumerate(envlight_batch):
+                output = outputs[batch_idx]  # [T, H, W, C]
 
-            # Save output
-            clip_name = data_batch['clip_name'][0].replace("/", "__")
-            video_save_path = os.path.join(args.video_save_folder, f"{clip_name}.relit_{envlight_ind:04d}.mp4")
-            save_image_or_video(
-                video_save_path=video_save_path,
-                video=output,
-                fps=args.fps,
-                H=args.height,
-                W=args.width,
-                video_save_quality=5,
-            )
-            log.info(f"Saved video to {video_save_path}")
+                if args.save_image:
+                    video_relative_base_name = data_batch["clip_name"][0]
+                    for ind in range(output.shape[0]):
+                        save_path = os.path.join(
+                            args.video_save_folder,
+                            f"relit_frames_{envlight_ind:04d}",
+                            f"{video_relative_base_name}.{ind:04d}.jpg",
+                        )
+                        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                        save_image_or_video(
+                            video_save_path=save_path,
+                            video=output[ind : ind + 1, ...],
+                            H=args.height,
+                            W=args.width,
+                        )
+
+                clip_name = data_batch["clip_name"][0].replace("/", "__")
+                video_save_path = os.path.join(args.video_save_folder, f"{clip_name}.relit_{envlight_ind:04d}.mp4")
+                save_image_or_video(
+                    video_save_path=video_save_path,
+                    video=output,
+                    fps=args.fps,
+                    H=args.height,
+                    W=args.width,
+                    video_save_quality=5,
+                )
+                log.info(f"Saved video to {video_save_path}")
 
 
 if __name__ == "__main__":

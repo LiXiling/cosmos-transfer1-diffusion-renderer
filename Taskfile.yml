@@ -43,10 +43,13 @@ tasks:
   # ── Image pipeline ─────────────────────────────────────────────────────────
 
   inverse:images:
-    desc: "Inverse rendering on images → G-buffers. Vars: DATASET_PATH, OUTPUT_DIR"
+    desc: "Inverse rendering on images → G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, BATCH_SIZE, TORCH_COMPILE"
     vars:
       DATASET_PATH: '{{.DATASET_PATH | default "asset/examples/image_examples/"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_delighting/"}}'
+      BATCH_SIZE: '{{.BATCH_SIZE | default "1"}}'
+      _COMPILE_ARG:
+        sh: '[ "{{.TORCH_COMPILE}}" = "1" ] && echo "--torch_compile" || echo ""'
     cmds:
       - >
         python cosmos_predict1/diffusion/inference/inference_inverse_renderer.py
@@ -54,14 +57,18 @@ tasks:
         --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
         --dataset_path {{.DATASET_PATH}}
         --num_video_frames 1 --group_mode webdataset
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --video_save_folder {{.OUTPUT_DIR}} --save_video=False
 
   relight:images:
-    desc: "Relight images from G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT (default: '0 1 2 3')"
+    desc: "Relight images from G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT, BATCH_SIZE, TORCH_COMPILE"
     vars:
       DATASET_PATH: '{{.DATASET_PATH | default "asset/example_results/image_delighting/gbuffer_frames"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_relighting/"}}'
       ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+      BATCH_SIZE: '{{.BATCH_SIZE | default "1"}}'
+      _COMPILE_ARG:
+        sh: '[ "{{.TORCH_COMPILE}}" = "1" ] && echo "--torch_compile" || echo ""'
     cmds:
       - >
         python cosmos_predict1/diffusion/inference/inference_forward_renderer.py
@@ -70,6 +77,7 @@ tasks:
         --dataset_path {{.DATASET_PATH}}
         --num_video_frames 1
         --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --video_save_folder {{.OUTPUT_DIR}}
 
   pipeline:images:
@@ -110,11 +118,14 @@ tasks:
         {{._FPS_ARG}} {{._RESIZE_ARG}} {{._MAX_FRAMES_ARG}}
 
   inverse:video:
-    desc: "Inverse rendering on video frames → G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, NUM_FRAMES (default 57)"
+    desc: "Inverse rendering on video frames → G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, NUM_FRAMES, BATCH_SIZE, TORCH_COMPILE"
     vars:
       DATASET_PATH: '{{.DATASET_PATH | default "asset/examples/video_frames_examples/"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/video_delighting/"}}'
       NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+      BATCH_SIZE: '{{.BATCH_SIZE | default "1"}}'
+      _COMPILE_ARG:
+        sh: '[ "{{.TORCH_COMPILE}}" = "1" ] && echo "--torch_compile" || echo ""'
     cmds:
       - >
         python cosmos_predict1/diffusion/inference/inference_inverse_renderer.py
@@ -122,15 +133,19 @@ tasks:
         --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
         --dataset_path {{.DATASET_PATH}}
         --num_video_frames {{.NUM_FRAMES}} --group_mode folder
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --video_save_folder {{.OUTPUT_DIR}}
 
   relight:video:
-    desc: "Relight video G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT, NUM_FRAMES (default 57)"
+    desc: "Relight video G-buffers. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT, NUM_FRAMES, BATCH_SIZE, TORCH_COMPILE"
     vars:
       DATASET_PATH: '{{.DATASET_PATH | default "asset/example_results/video_delighting/gbuffer_frames"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/video_relighting/"}}'
       ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
       NUM_FRAMES: '{{.NUM_FRAMES | default "57"}}'
+      BATCH_SIZE: '{{.BATCH_SIZE | default "1"}}'
+      _COMPILE_ARG:
+        sh: '[ "{{.TORCH_COMPILE}}" = "1" ] && echo "--torch_compile" || echo ""'
     cmds:
       - >
         python cosmos_predict1/diffusion/inference/inference_forward_renderer.py
@@ -139,6 +154,7 @@ tasks:
         --dataset_path {{.DATASET_PATH}}
         --num_video_frames {{.NUM_FRAMES}}
         --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --video_save_folder {{.OUTPUT_DIR}}
 
   pipeline:video:
@@ -184,10 +200,13 @@ tasks:
       - docker compose run --rm cosmos bash
 
   docker:inverse:images:
-    desc: "Run inverse:images via Docker. Vars: DATASET_PATH, OUTPUT_DIR"
+    desc: "Run inverse:images via Docker. Vars: DATASET_PATH, OUTPUT_DIR, BATCH_SIZE, TORCH_COMPILE"
     vars:
       DATASET_PATH: '{{.DATASET_PATH | default "asset/examples/image_examples/"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_delighting/"}}'
+      BATCH_SIZE: '{{.BATCH_SIZE | default "1"}}'
+      _COMPILE_ARG:
+        sh: '[ "{{.TORCH_COMPILE}}" = "1" ] && echo "--torch_compile" || echo ""'
     cmds:
       - >
         docker compose run --rm cosmos
@@ -196,14 +215,18 @@ tasks:
         --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
         --dataset_path {{.DATASET_PATH}}
         --num_video_frames 1 --group_mode webdataset
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --video_save_folder {{.OUTPUT_DIR}} --save_video=False
 
   docker:relight:images:
-    desc: "Run relight:images via Docker. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT"
+    desc: "Run relight:images via Docker. Vars: DATASET_PATH, OUTPUT_DIR, ENVLIGHT, BATCH_SIZE, TORCH_COMPILE"
     vars:
       DATASET_PATH: '{{.DATASET_PATH | default "asset/example_results/image_delighting/gbuffer_frames"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/example_results/image_relighting/"}}'
       ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
+      BATCH_SIZE: '{{.BATCH_SIZE | default "1"}}'
+      _COMPILE_ARG:
+        sh: '[ "{{.TORCH_COMPILE}}" = "1" ] && echo "--torch_compile" || echo ""'
     cmds:
       - >
         docker compose run --rm cosmos
@@ -213,10 +236,11 @@ tasks:
         --dataset_path {{.DATASET_PATH}}
         --num_video_frames 1
         --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --video_save_folder {{.OUTPUT_DIR}}
 
   docker:relight:video:
-    desc: "Full video relight pipeline via Docker. Required: VIDEO=asset/input/my_video.mp4 [ENVLIGHT='0 1 2 3']"
+    desc: "Full video relight pipeline via Docker. Required: VIDEO=asset/input/my_video.mp4 [ENVLIGHT='0 1 2 3'] [BATCH_SIZE=1] [TORCH_COMPILE=1]"
     preconditions:
       - sh: command -v ffprobe
         msg: "ffprobe is required to probe video metadata. Install ffmpeg."
@@ -226,6 +250,9 @@ tasks:
       VIDEO: '{{.VIDEO}}'
       ENVLIGHT: '{{.ENVLIGHT | default "0 1 2 3"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "asset/output/"}}'
+      BATCH_SIZE: '{{.BATCH_SIZE | default "1"}}'
+      _COMPILE_ARG:
+        sh: '[ "{{.TORCH_COMPILE}}" = "1" ] && echo "--torch_compile" || echo ""'
       _STEM:
         sh: 'basename "{{.VIDEO}}" | sed "s/\.[^.]*$//"'
       _INPUT_DIR:
@@ -251,6 +278,7 @@ tasks:
         --diffusion_transformer_dir Diffusion_Renderer_Inverse_Cosmos_7B
         --dataset_path asset/tmp/frames/{{._STEM}}
         --num_video_frames 57 --group_mode folder --chunk_mode all
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --fps {{._FPS}}
         --video_save_folder asset/tmp/gbuffers
       # 3. Forward rendering — relights each chunk
@@ -263,6 +291,7 @@ tasks:
         --num_video_frames 57
         --fps {{._FPS}}
         --envlight_ind {{.ENVLIGHT}} --use_custom_envmap=True
+        --batch_size {{.BATCH_SIZE}} {{._COMPILE_ARG}}
         --video_save_folder {{.OUTPUT_DIR}}
       # 4. Concatenate chunks into final video, trimmed to original length
       - >
